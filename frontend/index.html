@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CORS Preflight Lab</title>
+    <style>
+      :root {
+        --bg: #f7f5ef;
+        --panel: #fffdf8;
+        --text: #1f2937;
+        --muted: #6b7280;
+        --accent: #c2410c;
+        --ok: #166534;
+        --border: #e5dccf;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(194, 65, 12, 0.15), transparent 30%),
+          linear-gradient(180deg, #fbfaf6 0%, var(--bg) 100%);
+        color: var(--text);
+      }
+
+      main {
+        width: min(900px, calc(100vw - 32px));
+        margin: 40px auto;
+        padding: 28px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
+      }
+
+      h1 {
+        margin-top: 0;
+        font-size: 32px;
+      }
+
+      p {
+        line-height: 1.7;
+      }
+
+      .actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin: 24px 0;
+      }
+
+      button {
+        border: 0;
+        border-radius: 999px;
+        padding: 12px 18px;
+        font-size: 15px;
+        cursor: pointer;
+        color: white;
+        background: var(--accent);
+      }
+
+      button.secondary {
+        background: var(--ok);
+      }
+
+      pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+        padding: 16px;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        background: #fff;
+        min-height: 220px;
+      }
+
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+
+      .hint {
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>CORS 预检实验室</h1>
+      <p>
+        这个页面运行在 <code>http://localhost:8080</code>，会向
+        <code>http://localhost:8081</code> 发起跨域 <code>GET</code> 请求。
+        请求里故意带上 <code>Authorization</code> 头，确保浏览器先发
+        <code>OPTIONS</code> 预检请求。
+      </p>
+      <p class="hint">
+        下面提供七组对照：包括 <code>403</code> / <code>502</code> 在“返回了
+        <code>Access-Control-Allow-*</code> 头”和“完全不返回这些头”两种场景，以及
+        <code>400</code>、协商失败和成功场景。你会看到，只要预检状态或协商结果不满足要求，浏览器就不会继续发送后面的真实
+        <code>GET</code> 请求。
+      </p>
+
+      <div class="actions">
+        <button id="bad-request">触发 400 预检失败</button>
+        <button id="forbidden-with-cors">触发 403 有 CORS 头</button>
+        <button id="forbidden-no-cors">触发 403 无 CORS 头</button>
+        <button id="bad-gateway-with-cors">触发 502 有 CORS 头</button>
+        <button id="bad-gateway-no-cors">触发 502 无 CORS 头</button>
+        <button id="missing-allow-headers">触发协商失败</button>
+        <button class="secondary" id="ok">触发成功请求</button>
+      </div>
+
+      <pre id="output">等待测试...</pre>
+    </main>
+
+    <script>
+      const output = document.getElementById("output");
+
+      function log(message) {
+        output.textContent = `${new Date().toLocaleTimeString()}\n${message}`;
+      }
+
+      async function run(path) {
+        log(`准备请求 ${path}\n请同时打开 DevTools 的 Network 和 Console 观察预检行为...`);
+
+        try {
+          const response = await fetch(`http://localhost:8081${path}`, {
+            method: "GET",
+            headers: {
+              Authorization: "Bearer demo-token",
+            },
+          });
+
+          const body = await response.text();
+          log(
+            [
+              `正式请求已发出，状态码: ${response.status}`,
+              `响应头 Access-Control-Allow-Origin: ${response.headers.get("access-control-allow-origin")}`,
+              `响应体: ${body}`,
+            ].join("\n")
+          );
+        } catch (error) {
+          const details =
+            path === "/bad-request"
+              ? "如果你在 Network 中看到 OPTIONS 返回 400，说明这是一次“状态码失败”的预检。"
+              : path === "/forbidden-with-cors"
+                ? "如果你在 Network 中看到 OPTIONS 返回 403，且仍带有 Access-Control-Allow-* 头，说明即使 CORS 头存在，非 2xx 预检依然会失败。"
+                : path === "/forbidden-no-cors"
+                  ? "如果你在 Network 中看到 OPTIONS 返回 403，且没有 Access-Control-Allow-* 头，说明这是更接近真实线上故障的一类预检失败。"
+                : path === "/bad-gateway-with-cors"
+                  ? "如果你在 Network 中看到 OPTIONS 返回 502，且仍带有 Access-Control-Allow-* 头，说明即使 CORS 头存在，5xx 预检依然会失败。"
+                : path === "/bad-gateway-no-cors"
+                  ? "如果你在 Network 中看到 OPTIONS 返回 502，且没有 Access-Control-Allow-* 头，说明这是你文章里那种更典型的现象。"
+                : path === "/missing-allow-headers"
+                  ? "如果你在 Network 中看到 OPTIONS 返回 204，但响应里缺少 Access-Control-Allow-Headers: Authorization，说明这是一次“协商失败”的预检。"
+                  : "请结合 Network 面板继续观察这次预检响应。";
+          log(
+            [
+              `fetch 抛出了异常: ${error}`,
+              "",
+              details,
+              "预检先失败，随后浏览器在前端层面表现为 CORS 报错。",
+            ].join("\n")
+          );
+        }
+      }
+
+      document.getElementById("bad-request").addEventListener("click", () => run("/bad-request"));
+      document.getElementById("forbidden-with-cors").addEventListener("click", () => run("/forbidden-with-cors"));
+      document.getElementById("forbidden-no-cors").addEventListener("click", () => run("/forbidden-no-cors"));
+      document.getElementById("bad-gateway-with-cors").addEventListener("click", () => run("/bad-gateway-with-cors"));
+      document.getElementById("bad-gateway-no-cors").addEventListener("click", () => run("/bad-gateway-no-cors"));
+      document.getElementById("missing-allow-headers").addEventListener("click", () => run("/missing-allow-headers"));
+      document.getElementById("ok").addEventListener("click", () => run("/ok"));
+    </script>
+  </body>
+</html>
